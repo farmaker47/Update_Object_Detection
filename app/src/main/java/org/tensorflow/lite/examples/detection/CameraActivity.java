@@ -38,6 +38,7 @@ import android.util.Size;
 import android.util.TypedValue;
 import android.view.Surface;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.widget.ImageView;
@@ -77,6 +78,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
+
+import kotlin.TypeCastException;
 
 public class CameraActivity extends AppCompatActivity implements View.OnClickListener {
   private static final Logger LOGGER = new Logger();
@@ -133,6 +136,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
   //private Matrix cropToFrameTransform;
   private long timestamp = 0;
   private MultiBoxTracker tracker;
+  private int lensFacing = 0;
 
 
   @Override
@@ -332,11 +336,16 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                           }
                         }
 
-                        tracker.trackResults(mappedRecognitions, currTimestamp);
-                        binding.trackingOverlay.postInvalidate();
+                        /*tracker.trackResults(mappedRecognitions, currTimestamp);
+                        binding.trackingOverlay.postInvalidate();*/
 
                         runOnUiThread(
                                 () -> {
+
+                                  if (mappedRecognitions.size() > 0) {
+                                    reportPrediction(mappedRecognitions.get(0));
+                                  }
+
                                   showFrameInfo(DESIRED_ANALYSIS_SIZE.getWidth() + "x" + DESIRED_ANALYSIS_SIZE.getHeight());
                                   showCropInfo(TF_OD_API_INPUT_SIZE + "x" + TF_OD_API_INPUT_SIZE);
                                   showInference(lastProcessingTimeMs + "ms");
@@ -366,6 +375,93 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
       }
     }, ContextCompat.getMainExecutor(this));
   }
+
+
+  /**
+   * @param recognition
+   */
+  private void reportPrediction(Detector.Recognition recognition) {
+
+
+    // Early exit: if prediction is not good enough, don't report it
+    if (recognition == null || recognition.getConfidence() < MINIMUM_CONFIDENCE_TF_OD_API) {
+      binding.boxPrediction.setVisibility(View.GONE);
+    } else {
+      // Location has to be mapped to our local coordinates
+      //RectF location = new RectF(292.7002f, 898.9939f, 939.1836f, 1565.0549f);//mapOutputCoordinates(recognition.getLocation());
+      RectF location = mapOutputCoordinates(recognition.getLocation());
+
+      ViewGroup.LayoutParams boxPredictionLayoutParams = binding.boxPrediction.getLayoutParams();
+      if (boxPredictionLayoutParams == null) {
+        throw new TypeCastException("null cannot be cast to non-null type android.view.ViewGroup.MarginLayoutParams");
+      } else {
+        //ViewGroup.MarginLayoutParams boxParams = (ViewGroup.MarginLayoutParams) boxPredictionLayoutParams;
+
+        // (box_prediction.layoutParams as ViewGroup.MarginLayoutParams).apply {
+        //      topMargin = location.top.toInt()
+        //      leftMargin = location.left.toInt()
+        //      width = min(view_finder.width, location.right.toInt() - location.left.toInt())
+        //      height = min(view_finder.height, location.bottom.toInt() - location.top.toInt())
+        //  }
+
+        /*boxParams.topMargin = 805;//(int) location.top;
+        boxParams.leftMargin = 151;//(int) location.left;
+        boxParams.width = 716;//Math.min(binding.previewView.getWidth(), (int) location.right - (int) location.left);
+        boxParams.height = 726;//Math.min(binding.previewView.getHeight(), (int) location.bottom - (int) location.top);*/
+
+        ViewGroup.MarginLayoutParams var10 = (ViewGroup.MarginLayoutParams) boxPredictionLayoutParams;
+        var10.topMargin = (int) location.top;
+        var10.leftMargin = (int) location.left;
+        int var7 = binding.previewView.getWidth();
+        int var8 = (int) location.right - (int) location.left;
+        var10.width = Math.min(var7, var8);
+        var7 = binding.previewView.getHeight();
+        var8 = (int) location.bottom - (int) location.top;
+        var10.height = Math.min(var7, var8);
+
+
+        binding.boxPrediction.setLayoutParams(var10);
+
+        binding.boxPrediction.setVisibility(View.VISIBLE);
+
+      }
+    }
+  }
+
+  private RectF mapOutputCoordinates(RectF location) {
+
+    RectF previewLocation = new RectF(location.left, location.top, location.right, location.bottom);
+
+    boolean isFrontFacing = lensFacing == 1;
+    boolean isFlippedOrientation = this.sensorOrientation == 90 || this.sensorOrientation == 270;
+    RectF var10000;
+    if ((isFrontFacing || !isFlippedOrientation) && (!isFrontFacing || isFlippedOrientation)) {
+      var10000 = previewLocation;
+    } else {
+      float var13 = (float) binding.previewView.getWidth() - previewLocation.right;
+      float var14 = (float) binding.previewView.getHeight() - previewLocation.bottom;
+      float var15 = (float) binding.previewView.getWidth() - previewLocation.left;
+      float var10 = (float) binding.previewView.getHeight() - previewLocation.top;
+      var10000 = new RectF(var13, var14, var15, var10);
+    }
+
+    RectF rotatedLocation = var10000;
+    float margin = 0.1F;
+    float requestedRatio = 4f / 3f;
+    float midX = (rotatedLocation.left + rotatedLocation.right) / 2.0F;
+    float midY = (rotatedLocation.top + rotatedLocation.bottom) / 2.0F;
+
+    return binding.previewView.getWidth() < binding.previewView.getHeight()
+            ? new RectF(midX - (1.0F + margin) * requestedRatio * rotatedLocation.width() * 2.0F,
+            midY - (1.0F - margin) * rotatedLocation.height() * 2.0F,
+            midX + (1.0F + margin) * requestedRatio * rotatedLocation.width() * 2.0F,
+            midY + (1.0F - margin) * rotatedLocation.height() * 2.0F)
+            : new RectF(midX - (1.0F - margin) * rotatedLocation.width() / 2.0F,
+            midY - (1.0F + margin) * requestedRatio * rotatedLocation.height() / 2.0F,
+            midX + (1.0F - margin) * rotatedLocation.width() / 2.0F,
+            midY + (1.0F + margin) * requestedRatio * rotatedLocation.height() / 2.0F);
+  }
+
 
   private File createFile(Context context, String extension) {
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss_SSS", Locale.US);
