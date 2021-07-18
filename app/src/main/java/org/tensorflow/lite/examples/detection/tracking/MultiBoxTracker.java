@@ -92,7 +92,7 @@ public class MultiBoxTracker {
           final int width, final int height, final int sensorOrientation) {
     frameWidth = width;
     frameHeight = height;
-    logger.i("Frame Height %d Frame Width %d", frameHeight, frameWidth);
+    logger.i("Frame Height %d Frame Width %d Sensor Orientation %d", frameHeight, frameWidth, sensorOrientation);
     this.sensorOrientation = sensorOrientation;
   }
 

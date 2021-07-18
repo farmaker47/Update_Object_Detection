@@ -114,12 +114,12 @@ public class TFLiteObjectDetectionAPIModel implements Detector {
             ImageProcessingOptions.builder()
                     .setOrientation(getOrientation(sensorOrientation))
                     // Set the ROI to the center of the image.
-                    /*.setRoi(
+                    .setRoi(
                             new Rect(
-                                    *//*left=*//* (width - cropSize) / 2,
-                                    *//*top=*//* (height - cropSize) / 2,
-                                    *//*right=*//* (width + cropSize) / 2,
-                                    *//*bottom=*//* (height + cropSize) / 2))*/
+                                    /*left=*/ (width - cropSize) / 2,
+                                    /*top=*/ (height - cropSize) / 2,
+                                    /*right=*/ (width + cropSize) / 2,
+                                    /*bottom=*/ (height + cropSize) / 2))
                     .build();
 
     List<Detection> results = objectDetector.detect(inputImage, imageOptions);
