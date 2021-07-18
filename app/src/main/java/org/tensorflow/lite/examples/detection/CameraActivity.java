@@ -694,7 +694,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
 
     if (applyRotation != 0) {
       // Translate back from origin centered reference to destination frame.
-      matrix.postTranslate(dstWidth / 2.8f, dstHeight / 2f);
+      matrix.postTranslate(dstWidth / 2.9f, dstHeight / 2f);
     }
 
     return matrix;

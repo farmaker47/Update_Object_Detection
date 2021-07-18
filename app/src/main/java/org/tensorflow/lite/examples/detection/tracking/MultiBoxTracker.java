@@ -183,7 +183,7 @@ public class MultiBoxTracker {
         continue;
       }
 
-      rectsToTrack.add(new Pair<Float, Recognition>(result.getConfidence(), result));
+      rectsToTrack.add(new Pair<>(result.getConfidence(), result));
     }
 
     trackedObjects.clear();
