@@ -92,7 +92,7 @@ public class MultiBoxTracker {
           final int width, final int height, final int sensorOrientation) {
     frameWidth = width;
     frameHeight = height;
-    logger.i("Frame Height %d Frame Width %d", frameHeight, frameWidth);
+    logger.i("Frame Height %d Frame Width %d Sensor Orientation %d", frameHeight, frameWidth, sensorOrientation);
     this.sensorOrientation = sensorOrientation;
   }
 
@@ -183,7 +183,7 @@ public class MultiBoxTracker {
         continue;
       }
 
-      rectsToTrack.add(new Pair<Float, Recognition>(result.getConfidence(), result));
+      rectsToTrack.add(new Pair<>(result.getConfidence(), result));
     }
 
     trackedObjects.clear();

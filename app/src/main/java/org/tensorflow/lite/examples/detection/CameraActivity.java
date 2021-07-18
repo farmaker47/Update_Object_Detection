@@ -21,10 +21,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Matrix;
-import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.media.Image;
@@ -112,7 +109,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
 
   // Minimum detection confidence to track a detection.
   private static final float MINIMUM_CONFIDENCE_TF_OD_API = 0.5f;
-  private static final boolean MAINTAIN_ASPECT = false;
   private static final Size DESIRED_ANALYSIS_SIZE = new Size(640, 480);
   private static final float TEXT_SIZE_DIP = 10;
   private long lastProcessingTimeMs;
@@ -132,12 +128,10 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
   private int yRowStride;
 
   static final int kMaxChannelValue = 262143;
-  private Matrix frameToCropTransform;
   //private Matrix cropToFrameTransform;
   private long timestamp = 0;
   private MultiBoxTracker tracker;
   private int lensFacing = 0;
-
 
   @Override
   protected void onCreate(final Bundle savedInstanceState) {
@@ -210,18 +204,10 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                     TypedValue.COMPLEX_UNIT_DIP, TEXT_SIZE_DIP, getResources().getDisplayMetrics());
     BorderedText borderedText = new BorderedText(textSizePx);
     borderedText.setTypeface(Typeface.MONOSPACE);
-    int cropSize = TF_OD_API_INPUT_SIZE;
-    Log.v("Camera oImageRotation", String.valueOf(rotation));
-    Log.v("Camera oScreenOrientati", String.valueOf(getScreenOrientation()));
-    sensorOrientation = rotation;// - getScreenOrientation();
+    Log.v("Camera ImageRotation", String.valueOf(rotation));
+    sensorOrientation = rotation;
     previewWidth = size.getWidth();
     previewHeight = size.getHeight();
-    //cropToFrameTransform = new Matrix();
-    /*frameToCropTransform = getTransformationMatrix(
-            previewWidth, previewHeight,
-            640, 480,
-            0, false);*/
-    //frameToCropTransform.invert(cropToFrameTransform);
     tracker = new MultiBoxTracker(this);
 
     try {
@@ -232,7 +218,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                       TF_OD_API_LABELS_FILE,
                       TF_OD_API_INPUT_SIZE,
                       TF_OD_API_IS_QUANTIZED);
-      cropSize = TF_OD_API_INPUT_SIZE;
     } catch (final IOException e) {
       e.printStackTrace();
       LOGGER.e(e, "Exception initializing Detector!");
@@ -284,8 +269,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
           int rotationDegrees = image.getImageInfo().getRotationDegrees();
           Log.i("Rotation Degrees", String.valueOf(rotationDegrees));
           Log.i("Rotation preview", String.valueOf(binding.previewView.getDisplay().getRotation()));
-          Log.i("Image width", String.valueOf(image.getWidth()));
-          Log.i("Image height", String.valueOf(image.getHeight()));
 
           ++timestamp;
           final long currTimestamp = timestamp;
@@ -296,8 +279,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
           }
 
           if (!isProcessingFrame) {
-            //final int cropSize = Math.min(DESIRED_PREVIEW_SIZE.getWidth(), DESIRED_PREVIEW_SIZE.getHeight());
-
             runInBackground(
                     () -> {
                       if (detector != null) {
@@ -305,16 +286,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                         final List<Detector.Recognition> results = detector.recognizeImage(image.getImage(), sensorOrientation);
                         lastProcessingTimeMs = SystemClock.uptimeMillis() - startTime;
                         LOGGER.e("Degrees: %s", results);
-
-                        //cropCopyBitmap = Bitmap.createBitmap(imageToRGB(image.getImage(), image.getWidth(), image.getHeight()));
-                        //File photoFile = createFile(this, "jpg");
-                        //File filePath = saveBitmap(cropCopyBitmap, photoFile);
-                        //Log.v("File_path", filePath.toString());
-                        /*final Canvas canvas = new Canvas(cropCopyBitmap);
-                        final Paint paint = new Paint();
-                        paint.setColor(Color.RED);
-                        paint.setStyle(Paint.Style.STROKE);
-                        paint.setStrokeWidth(2.0f);*/
 
                         float minimumConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
                         if (MODE == DetectorMode.TF_OD_API) {
@@ -327,10 +298,6 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                         for (final Detector.Recognition result : results) {
                           final RectF location = result.getLocation();
                           if (location != null && result.getConfidence() >= minimumConfidence) {
-                            //canvas.drawRect(location, paint);
-
-                            //frameToCropTransform.mapRect(location);
-
                             result.setLocation(location);
                             mappedRecognitions.add(result);
                           }
@@ -643,7 +610,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
     }
   }
 
-  private Bitmap imageToRGB(final Image image, final int width, final int height) {
+  public Bitmap imageToRGB(final Image image, final int width, final int height) {
     if (rgbBytes == null) {
       rgbBytes = new int[width * height];
     }
@@ -753,14 +720,10 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
           final boolean maintainAspectRatio) {
     final Matrix matrix = new Matrix();
 
+    // Translate so center of image is at origin.
+    matrix.postTranslate(-srcWidth / 2f, -srcHeight / 2f);
+
     if (applyRotation != 0) {
-      if (applyRotation % 90 != 0) {
-        LOGGER.w("Rotation of %d % 90 != 0", applyRotation);
-      }
-
-      // Translate so center of image is at origin.
-      matrix.postTranslate(-srcWidth / 2f, -srcHeight / 2f);
-
       // Rotate around origin.
       matrix.postRotate(applyRotation);
     }
@@ -788,63 +751,14 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
       }
     }
 
-    if (applyRotation != 0) {
-      // Translate back from origin centered reference to destination frame.
-      matrix.postTranslate(dstWidth / 2.8f, dstHeight / 2f);
+    // Translate back from origin centered reference to destination frame.
+    if (applyRotation == 90) {
+      matrix.postTranslate(dstWidth / 3f, dstHeight / 2f);
+    }else if(applyRotation == 0 || applyRotation == 180){
+      matrix.postTranslate(dstWidth / 2f, dstHeight / 3f);
     }
 
     return matrix;
   }
 
-  /*public static Matrix getTransformationMatrix(
-          final int srcWidth,
-          final int srcHeight,
-          final int dstWidth,
-          final int dstHeight,
-          final int applyRotation,
-          final boolean maintainAspectRatio) {
-    final Matrix matrix = new Matrix();
-
-    if (applyRotation != 0) {
-      if (applyRotation % 90 != 0) {
-        LOGGER.w("Rotation of %d % 90 != 0", applyRotation);
-      }
-
-      // Translate so center of image is at origin.
-      matrix.postTranslate(-srcWidth / 2.0f, -srcHeight / 2.0f);
-
-      // Rotate around origin.
-      matrix.postRotate(applyRotation);
-    }
-
-    // Account for the already applied rotation, if any, and then determine how
-    // much scaling is needed for each axis.
-    final boolean transpose = (Math.abs(applyRotation) + 90) % 180 == 0;
-
-    final int inWidth = transpose ? srcHeight : srcWidth;
-    final int inHeight = transpose ? srcWidth : srcHeight;
-
-    // Apply scaling if necessary.
-    if (inWidth != dstWidth || inHeight != dstHeight) {
-      final float scaleFactorX = dstWidth / (float) inWidth;
-      final float scaleFactorY = dstHeight / (float) inHeight;
-
-      if (maintainAspectRatio) {
-        // Scale by minimum factor so that dst is filled completely while
-        // maintaining the aspect ratio. Some image may fall off the edge.
-        final float scaleFactor = Math.max(scaleFactorX, scaleFactorY);
-        matrix.postScale(scaleFactor, scaleFactor);
-      } else {
-        // Scale exactly to fill dst from src.
-        matrix.postScale(scaleFactorX, scaleFactorY);
-      }
-    }
-
-    if (applyRotation != 0) {
-      // Translate back from origin centered reference to destination frame.
-      matrix.postTranslate(dstWidth / 2.0f, dstHeight / 2.0f);
-    }
-
-    return matrix;
-  }*/
 }
