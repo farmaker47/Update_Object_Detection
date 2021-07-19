@@ -27,6 +27,7 @@ import android.media.Image;
 import android.os.SystemClock;
 import android.os.Trace;
 import android.util.Log;
+
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -40,14 +41,19 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.support.common.TensorOperator;
+import org.tensorflow.lite.support.common.ops.NormalizeOp;
+import org.tensorflow.lite.support.image.ColorSpaceType;
 import org.tensorflow.lite.support.image.ImageProcessor;
 import org.tensorflow.lite.support.image.TensorImage;
 import org.tensorflow.lite.support.image.ops.ResizeOp;
 import org.tensorflow.lite.support.image.ops.ResizeWithCropOrPadOp;
 import org.tensorflow.lite.support.image.ops.Rot90Op;
 import org.tensorflow.lite.support.metadata.MetadataExtractor;
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 
 /**
  * Wrapper for frozen detection models trained using the Tensorflow Object Detection API: -
@@ -81,11 +87,9 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
   private int inputSize;
   // Pre-allocated buffers.
   private final List<String> labels = new ArrayList<>();
-  private int[] intValues;
   /**
    * Input image TensorBuffer.
    */
-  private TensorImage inputImageBuffer;
   // outputLocations: array of shape [Batchsize, NUM_DETECTIONS,4]
   // contains the location of detected boxes
   private float[][][] outputLocations;
@@ -98,18 +102,18 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
   // numDetections: array of shape [Batchsize]
   // contains the number of detected boxes
   private float[] numDetections;
-
-  private ByteBuffer imgData;
-
   private MappedByteBuffer tfLiteModel;
   private Interpreter.Options tfLiteOptions;
   private Interpreter tfLite;
 
-  private TFLiteObjectDetectionAPIModel() {}
+  private TFLiteObjectDetectionAPIModel() {
+  }
 
-  /** Memory-map the model file in Assets. */
+  /**
+   * Memory-map the model file in Assets.
+   */
   private static MappedByteBuffer loadModelFile(AssetManager assets, String modelFilename)
-      throws IOException {
+          throws IOException {
     AssetFileDescriptor fileDescriptor = assets.openFd(modelFilename);
     FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
     FileChannel fileChannel = inputStream.getChannel();
@@ -123,17 +127,17 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
    *
    * @param modelFilename The model file path relative to the assets folder
    * @param labelFilename The label file path relative to the assets folder
-   * @param inputSize The size of image input
-   * @param isQuantized Boolean representing model is quantized or not
+   * @param inputSize     The size of image input
+   * @param isQuantized   Boolean representing model is quantized or not
    */
   @SuppressLint("LongLogTag")
   public static Detector create(
-      final Context context,
-      final String modelFilename,
-      final String labelFilename,
-      final int inputSize,
-      final boolean isQuantized)
-      throws IOException {
+          final Context context,
+          final String modelFilename,
+          final String labelFilename,
+          final int inputSize,
+          final boolean isQuantized)
+          throws IOException {
     final TFLiteObjectDetectionAPIModel d = new TFLiteObjectDetectionAPIModel() {
       @Override
       protected TensorOperator getPreprocessNormalizeOp() {
@@ -144,9 +148,9 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
     MappedByteBuffer modelFile = loadModelFile(context.getAssets(), modelFilename);
     MetadataExtractor metadata = new MetadataExtractor(modelFile);
     try (BufferedReader br =
-        new BufferedReader(
-            new InputStreamReader(
-                metadata.getAssociatedFile(labelFilename), Charset.defaultCharset()))) {
+                 new BufferedReader(
+                         new InputStreamReader(
+                                 metadata.getAssociatedFile(labelFilename), Charset.defaultCharset()))) {
       String line;
       while ((line = br.readLine()) != null) {
         Log.w(TAG, line);
@@ -168,16 +172,7 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
     }
 
     d.isModelQuantized = isQuantized;
-    // Pre-allocate buffers.
-    int numBytesPerChannel;
-    if (isQuantized) {
-      numBytesPerChannel = 1; // Quantized
-    } else {
-      numBytesPerChannel = 4; // Floating point
-    }
-    d.imgData = ByteBuffer.allocateDirect(1 * d.inputSize * d.inputSize * 3 * numBytesPerChannel);
-    d.imgData.order(ByteOrder.nativeOrder());
-    d.intValues = new int[d.inputSize * d.inputSize];
+    Log.i("QUANTIZED", String.valueOf(isQuantized));
 
     d.outputLocations = new float[1][NUM_DETECTIONS][4];
     d.outputClasses = new float[1][NUM_DETECTIONS];
@@ -194,44 +189,84 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
 
     Trace.beginSection("loadImage");
     long startTimeForLoadImage = SystemClock.uptimeMillis();
-    inputImageBuffer = loadImage(image, sensorOrientation);
+
+    //Convert image to Bitmap
+    Bitmap bitmap = imageToRGB(image, image.getWidth(), image.getHeight());
+    Log.v("TFLITE_w", String.valueOf(image.getWidth()));
+    Log.v("TFLITE_h", String.valueOf(image.getHeight()));
+
+    //Loads bitmap into a TensorImage.
+    int imageTensorIndex = 0;
+    int[] imageShape = tfLite.getInputTensor(imageTensorIndex).shape();
+    DataType imageDataType = tfLite.getInputTensor(imageTensorIndex).dataType();
+    //Log.v("TFLITE", String.valueOf(imageShape[0]));
+
+    TensorImage tensorImage = new TensorImage(imageDataType);
+    tensorImage.load(bitmap);
+
+    // Creates processor for the TensorImage.
+    //int cropSize = min(bitmap.getWidth(), bitmap.getHeight());
+    int numRotation = sensorOrientation / 90;
+
+    ImageProcessor imageProcessor = new ImageProcessor.Builder()
+            .add(new ResizeOp(inputSize, inputSize, ResizeOp.ResizeMethod.BILINEAR))
+            .add(new Rot90Op(numRotation))
+            .build();
+                    /*.add(new ResizeWithCropOrPadOp(cropSize, cropSize))
+                    // To get the same inference results as lib_task_api, which is built on top of the Task
+                    // Library, use ResizeMethod.BILINEAR.
+                    .add(new ResizeOp(480, 640, ResizeOp.ResizeMethod.BILINEAR))
+                    .add(new Rot90Op(numRotation))
+                    .add(getPreprocessNormalizeOp())
+                    .build();*/
+
+    TensorImage tensorImageInput = imageProcessor.process(tensorImage);
+
     long endTimeForLoadImage = SystemClock.uptimeMillis();
     Trace.endSection();
     Log.v(TAG, "Time-Cost to load the image: " + (endTimeForLoadImage - startTimeForLoadImage));
-
-    imgData.rewind();
-    for (int i = 0; i < inputSize; ++i) {
-      for (int j = 0; j < inputSize; ++j) {
-        int pixelValue = intValues[i * inputSize + j];
-        if (isModelQuantized) {
-          // Quantized model
-          imgData.put((byte) ((pixelValue >> 16) & 0xFF));
-          imgData.put((byte) ((pixelValue >> 8) & 0xFF));
-          imgData.put((byte) (pixelValue & 0xFF));
-        } else { // Float model
-          imgData.putFloat((((pixelValue >> 16) & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
-          imgData.putFloat((((pixelValue >> 8) & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
-          imgData.putFloat(((pixelValue & 0xFF) - IMAGE_MEAN) / IMAGE_STD);
-        }
-      }
-    }
     Trace.endSection(); // preprocessBitmap
 
     // Copy the input data into TensorFlow.
-    Trace.beginSection("feed");
-    outputLocations = new float[1][NUM_DETECTIONS][4];
-    outputClasses = new float[1][NUM_DETECTIONS];
-    outputScores = new float[1][NUM_DETECTIONS];
-    numDetections = new float[1];
+    // Setup output tensors
+    /*int outputTensorIndex = 0;
+    int[] outputLocationShape =
+            tfLite.getOutputTensor(outputTensorIndex).shape();
+    //Log.v("OUTPUT_Location", String.valueOf(outputLocationShape[0]));
+    DataType outputLocationType = tfLite.getOutputTensor(outputTensorIndex).dataType();
+    outputTensorIndex++;
+    int[] outputClassShape =
+            tfLite.getOutputTensor(outputTensorIndex).shape();
+    DataType outputClassType = tfLite.getOutputTensor(outputTensorIndex).dataType();
+    outputTensorIndex++;
+    int[] outputScoreShape =
+            tfLite.getOutputTensor(outputTensorIndex).shape();
+    DataType outputScoreType = tfLite.getOutputTensor(outputTensorIndex).dataType();
+    outputTensorIndex++;
+    int[] numDetectionShape =
+            tfLite.getOutputTensor(outputTensorIndex).shape();
+    DataType numDetectionType = tfLite.getOutputTensor(outputTensorIndex).dataType();
 
-    Object[] inputArray = {imgData};
+    // Creates the output tensors and its processors.
+    TensorBuffer outputLocationBuffer = TensorBuffer.createFixedSize(outputLocationShape, outputLocationType);
+    TensorBuffer outputClassBuffer = TensorBuffer.createFixedSize(outputClassShape, outputClassType);
+    TensorBuffer outputScoreBuffer = TensorBuffer.createFixedSize(outputScoreShape, outputScoreType);
+    TensorBuffer numDetectionBuffer = TensorBuffer.createFixedSize(numDetectionShape, numDetectionType);*/
+
+    /*Map<Integer, Object> outputMap = new HashMap<>();
+    outputMap.put(0, outputLocationBuffer.getBuffer().rewind());
+    outputMap.put(1, outputClassBuffer.getBuffer().rewind());
+    outputMap.put(2, outputScoreBuffer.getBuffer().rewind());
+    outputMap.put(3, numDetectionBuffer.getBuffer().rewind());*/
+
+    Object[] inputArray = {tensorImageInput.getBuffer().rewind()};
+
     Map<Integer, Object> outputMap = new HashMap<>();
     outputMap.put(0, outputLocations);
     outputMap.put(1, outputClasses);
     outputMap.put(2, outputScores);
     outputMap.put(3, numDetections);
     Trace.endSection();
-
     // Run the inference call.
     Trace.beginSection("run");
     tfLite.runForMultipleInputsOutputs(inputArray, outputMap);
@@ -245,59 +280,25 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
     // For example, your model's NUM_DETECTIONS = 20, but sometimes it only outputs 16 predictions
     // If you don't use the output's numDetections, you'll get nonsensical data
     int numDetectionsOutput =
-        min(
-            NUM_DETECTIONS,
-            (int) numDetections[0]); // cast from float to integer, use min for safety
+            min(
+                    NUM_DETECTIONS,
+                    (int) numDetections[0]); // cast from float to integer, use min for safety
 
     final ArrayList<Recognition> recognitions = new ArrayList<>(numDetectionsOutput);
     for (int i = 0; i < numDetectionsOutput; ++i) {
       final RectF detection =
-          new RectF(
-              outputLocations[0][i][1] * inputSize,
-              outputLocations[0][i][0] * inputSize,
-              outputLocations[0][i][3] * inputSize,
-              outputLocations[0][i][2] * inputSize);
+              new RectF(
+                      outputLocations[0][i][0] * image.getWidth(),
+                      outputLocations[0][i][1] * image.getHeight(),
+                      outputLocations[0][i][2] * image.getWidth(),
+                      outputLocations[0][i][3] * image.getHeight());
 
       recognitions.add(
-          new Recognition(
-              "" + i, labels.get((int) outputClasses[0][i]), outputScores[0][i], detection));
+              new Recognition(
+                      "" + i, labels.get((int) outputClasses[0][i]), outputScores[0][i], detection));
     }
-    Trace.endSection(); // "recognizeImage"
+    Trace.endSection();
     return recognitions;
-  }
-
-  private TensorImage loadImage(final Image image, int sensorOrientation) {
-    //Convert image to Bitmap
-    Bitmap bitmap = imageToRGB(image, image.getWidth(), image.getHeight());
-
-    //Loads bitmap into a TensorImage.
-    inputImageBuffer.load(bitmap);
-
-    // Creates processor for the TensorImage.
-    int cropSize = min(bitmap.getWidth(), bitmap.getHeight());
-    int divisionResult = sensorOrientation / 90;
-    int numRotation;
-
-    // See explanation for rotation op
-    // https://github.com/tensorflow/tflite-support/blob/master/tensorflow_lite_support/java/src/java/org/tensorflow/lite/support/image/ops/Rot90Op.java
-    if (divisionResult == 1) {
-      numRotation = 1;
-    } else {
-      numRotation = 3;
-    }
-    Log.e("camera orientation_task", String.valueOf(divisionResult));
-
-    // TODO(b/143564309): Fuse ops inside ImageProcessor.
-    ImageProcessor imageProcessor =
-            new ImageProcessor.Builder()
-                    .add(new ResizeWithCropOrPadOp(cropSize, cropSize))
-                    // To get the same inference results as lib_task_api, which is built on top of the Task
-                    // Library, use ResizeMethod.BILINEAR.
-                    .add(new ResizeOp(480, 640, ResizeOp.ResizeMethod.BILINEAR))
-                    .add(new Rot90Op(numRotation))
-                    .add(getPreprocessNormalizeOp())
-                    .build();
-    return imageProcessor.process(inputImageBuffer);
   }
 
   private Bitmap imageToRGB(final Image image, final int width, final int height) {
@@ -401,9 +402,9 @@ public abstract class TFLiteObjectDetectionAPIModel implements Detector {
   }
 
 
-
   @Override
-  public void enableStatLogging(final boolean logStats) {}
+  public void enableStatLogging(final boolean logStats) {
+  }
 
   @Override
   public String getStatString() {

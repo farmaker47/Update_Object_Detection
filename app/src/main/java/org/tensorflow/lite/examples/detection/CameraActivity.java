@@ -480,9 +480,13 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
     binding.bottomSheetLayout.inferenceInfo.setText(inferenceTime);
   }
 
-  private void setNumThreads(int numThreads) throws IOException {
+  /*private void setNumThreads(int numThreads) throws IOException {
     LOGGER.d("Updating  numThreads: " + numThreads);
     detector.setNumThreads(this, TF_OD_API_LABELS_FILE, numThreads);
+  }*/
+
+  private void setNumThreads(final int numThreads) {
+    runInBackground(() -> detector.setNumThreads(numThreads));
   }
 
   @Override
@@ -493,11 +497,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
       if (numThreads >= 9) return;
       numThreads++;
       binding.bottomSheetLayout.threads.setText(String.valueOf(numThreads));
-      try {
-        setNumThreads(numThreads);
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
+      setNumThreads(numThreads);
     } else if (v.getId() == R.id.minus) {
       String threads = binding.bottomSheetLayout.threads.getText().toString().trim();
       int numThreads = Integer.parseInt(threads);
@@ -506,112 +506,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
       }
       numThreads--;
       binding.bottomSheetLayout.threads.setText(String.valueOf(numThreads));
-      try {
-        setNumThreads(numThreads);
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-    }
-  }
-
-  public Bitmap imageToRGB(final Image image, final int width, final int height) {
-    if (rgbBytes == null) {
-      rgbBytes = new int[width * height];
-    }
-
-    Bitmap rgbFrameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-
-    try {
-
-      if (image == null) {
-        return null;
-      }
-
-      Log.e("Degrees_length", String.valueOf(rgbBytes.length));
-      final Image.Plane[] planes = image.getPlanes();
-      fillBytesCameraX(planes, yuvBytes);
-      yRowStride = planes[0].getRowStride();
-      final int uvRowStride = planes[1].getRowStride();
-      final int uvPixelStride = planes[1].getPixelStride();
-
-      convertYUV420ToARGB8888(
-              yuvBytes[0],
-              yuvBytes[1],
-              yuvBytes[2],
-              width,
-              height,
-              yRowStride,
-              uvRowStride,
-              uvPixelStride,
-              rgbBytes);
-
-
-      rgbFrameBitmap.setPixels(rgbBytes, 0, width, 0, 0, width, height);
-
-
-    } catch (final Exception e) {
-      Log.e(e.toString(), "Exception!");
-    }
-
-    return rgbFrameBitmap;
-  }
-
-  private void fillBytesCameraX(final Image.Plane[] planes, final byte[][] yuvBytes) {
-    // Because of the variable row stride it's not possible to know in
-    // advance the actual necessary dimensions of the yuv planes.
-    for (int i = 0; i < planes.length; ++i) {
-      final ByteBuffer buffer = planes[i].getBuffer();
-      if (yuvBytes[i] == null) {
-        yuvBytes[i] = new byte[buffer.capacity()];
-      }
-      buffer.get(yuvBytes[i]);
-    }
-  }
-
-  private static int YUV2RGB(int y, int u, int v) {
-    // Adjust and check YUV values
-    y = Math.max((y - 16), 0);
-    u -= 128;
-    v -= 128;
-
-    // This is the floating point equivalent. We do the conversion in integer
-    // because some Android devices do not have floating point in hardware.
-    // nR = (int)(1.164 * nY + 2.018 * nU);
-    // nG = (int)(1.164 * nY - 0.813 * nV - 0.391 * nU);
-    // nB = (int)(1.164 * nY + 1.596 * nV);
-    int y1192 = 1192 * y;
-    int r = (y1192 + 1634 * v);
-    int g = (y1192 - 833 * v - 400 * u);
-    int b = (y1192 + 2066 * u);
-
-    // Clipping RGB values to be inside boundaries [ 0 , kMaxChannelValue ]
-    r = r > kMaxChannelValue ? kMaxChannelValue : (Math.max(r, 0));
-    g = g > kMaxChannelValue ? kMaxChannelValue : (Math.max(g, 0));
-    b = b > kMaxChannelValue ? kMaxChannelValue : (Math.max(b, 0));
-
-    return 0xff000000 | ((r << 6) & 0xff0000) | ((g >> 2) & 0xff00) | ((b >> 10) & 0xff);
-  }
-
-  public static void convertYUV420ToARGB8888(
-          byte[] yData,
-          byte[] uData,
-          byte[] vData,
-          int width,
-          int height,
-          int yRowStride,
-          int uvRowStride,
-          int uvPixelStride,
-          int[] out) {
-    int yp = 0;
-    for (int j = 0; j < height; j++) {
-      int pY = yRowStride * j;
-      int pUV = uvRowStride * (j >> 1);
-
-      for (int i = 0; i < width; i++) {
-        int uv_offset = pUV + (i >> 1) * uvPixelStride;
-
-        out[yp++] = YUV2RGB(0xff & yData[pY + i], 0xff & uData[uv_offset], 0xff & vData[uv_offset]);
-      }
+      setNumThreads(numThreads);
     }
   }
 
