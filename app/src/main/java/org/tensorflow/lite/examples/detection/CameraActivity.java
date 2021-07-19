@@ -303,15 +303,15 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
                           }
                         }
 
-                        /*tracker.trackResults(mappedRecognitions, currTimestamp);
-                        binding.trackingOverlay.postInvalidate();*/
+                        tracker.trackResults(mappedRecognitions, currTimestamp);
+                        binding.trackingOverlay.postInvalidate();
 
                         runOnUiThread(
                                 () -> {
 
-                                  if (mappedRecognitions.size() > 0) {
+                                  /*if (mappedRecognitions.size() > 0) {
                                     reportPrediction(mappedRecognitions.get(0));
-                                  }
+                                  }*/
 
                                   showFrameInfo(DESIRED_ANALYSIS_SIZE.getWidth() + "x" + DESIRED_ANALYSIS_SIZE.getHeight());
                                   showCropInfo(TF_OD_API_INPUT_SIZE + "x" + TF_OD_API_INPUT_SIZE);
