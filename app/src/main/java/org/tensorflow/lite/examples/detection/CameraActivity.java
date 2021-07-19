@@ -481,7 +481,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
   }
 
   private void setNumThreads(final int numThreads) {
-    runInBackground(() -> detector.setNumThreads(numThreads));
+    //runInBackground(() -> detector.setNumThreads(numThreads));
   }
 
   @Override
