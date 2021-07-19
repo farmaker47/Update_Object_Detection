@@ -482,7 +482,7 @@ public class CameraActivity extends AppCompatActivity implements View.OnClickLis
 
   private void setNumThreads(int numThreads) throws IOException {
     LOGGER.d("Updating  numThreads: " + numThreads);
-    detector.setNumThreads(this, TF_OD_API_LABELS_FILE, numThreads);
+    detector.setNumThreads(numThreads);
   }
 
   @Override
